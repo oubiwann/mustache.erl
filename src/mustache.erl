@@ -208,8 +208,10 @@ to_s(Val) when is_atom(Val) ->
 to_s(Val) ->
   Val.
 
-escape(HTML) ->
-  escape(HTML, []).
+escape(HTML) when is_list(HTML) ->
+  escape(HTML, []);
+escape(HTML) when is_binary(HTML) ->
+  escape(binary_to_list(HTML), []).
 
 escape([], Acc) ->
   lists:reverse(Acc);
