@@ -116,6 +116,7 @@ compile_section("#", Name, Content, State) ->
     "case " ++ ?MUSTACHE_STR ++ ":get(" ++ Name ++ ", Ctx, " ++ atom_to_list(Mod) ++ ") of " ++
       "\"true\" -> " ++ Result ++ "; " ++
       "\"false\" -> []; " ++
+      "\"undefined\" -> []; " ++
       "List when is_list(List) -> " ++
         "[fun(Ctx) -> " ++ Result ++ " end(" ++ ?MUSTACHE_CTX_STR ++ ":merge(SubCtx, Ctx)) || SubCtx <- List]; " ++
       "Else -> " ++
@@ -128,6 +129,7 @@ compile_section("^", Name, Content, State) ->
   "fun() -> " ++
     "case " ++ ?MUSTACHE_STR ++ ":get(" ++ Name ++ ", Ctx, " ++ atom_to_list(Mod) ++ ") of " ++
       "\"false\" -> " ++ Result ++ "; " ++
+      "\"undefined\" -> " ++ Result ++ "; " ++
       "[] -> " ++ Result ++ "; " ++
       "_ -> [] "
     "end " ++
@@ -194,6 +196,7 @@ get(Key, Ctx) when is_list(Key) ->
   get(list_to_atom(Key), Ctx);
 get(Key, Ctx) ->
   case ?MUSTACHE_CTX:get(Key, Ctx) of
+    {ok, undefined} -> [];
     {ok, Value} -> to_s(Value);
     {error, _} -> []
   end.
