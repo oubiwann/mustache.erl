@@ -114,13 +114,15 @@ compile_section("#", Name, Content, State) ->
   Result = compiler(Content, State),
   "fun() -> " ++
     "case " ++ ?MUSTACHE_STR ++ ":get(" ++ Name ++ ", Ctx, " ++ atom_to_list(Mod) ++ ") of " ++
-      "\"true\" -> " ++ Result ++ "; " ++
       "\"false\" -> []; " ++
       "\"undefined\" -> []; " ++
-      "List when is_list(List) -> " ++
+      "[] -> []; " ++
+      "[Dict | _] = List when element(1, Dict) =:= dict -> " ++
         "[fun(Ctx) -> " ++ Result ++ " end(" ++ ?MUSTACHE_CTX_STR ++ ":merge(SubCtx, Ctx)) || SubCtx <- List]; " ++
-      "Else -> " ++
-        "throw({template, io_lib:format(\"Bad context for ~p: ~p\", [" ++ Name ++ ", Else])}) " ++
+      "SubCtx when element(1, SubCtx) =:= dict -> " ++
+        "[fun(Ctx) -> " ++ Result ++ " end(" ++ ?MUSTACHE_CTX_STR ++ ":merge(SubCtx, Ctx))]; " ++
+      "_ -> " ++
+        Result ++
     "end " ++
   "end()";
 compile_section("^", Name, Content, State) ->
