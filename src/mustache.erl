@@ -35,12 +35,12 @@
 -define(MUSTACHE_CTX_STR, "mustache_ctx").
 -define(MUSTACHE_STR, "mustache").
 
-compile(Body) when is_list(Body) ->
+compile(Body) when is_binary(Body) ->
   State = #mstate{},
   CompiledTemplate = pre_compile(Body, State),
   % io:format("~p~n~n", [CompiledTemplate]),
   % io:format(CompiledTemplate ++ "~n", []),
-  {ok, Tokens, _} = erl_scan:string(CompiledTemplate),
+  {ok, Tokens, _} = erl_scan:string(lists:flatten(CompiledTemplate)),
   {ok, [Form]} = erl_parse:parse_exprs(Tokens),
   Bindings = erl_eval:new_bindings(),
   {value, Fun, _} = erl_eval:expr(Form, Bindings),
@@ -86,94 +86,94 @@ render(Mod, CompiledTemplate, CtxData) ->
 
 pre_compile(T, State) ->
   SectionRE = "{{(#|\\^)([^}]*?)}}(.+?){{/\\2}}",
-  {ok, CompiledSectionRE} = re:compile(SectionRE, [dotall]),
+  {ok, CompiledSectionRE} = re:compile(SectionRE, [dotall, unicode]),
   TagRE = "{{(#|=|!|<|>|{|&)?(.+?)\\1?}}+",
-  {ok, CompiledTagRE} = re:compile(TagRE, [dotall]),
+  {ok, CompiledTagRE} = re:compile(TagRE, [dotall, unicode]),
   State2 = State#mstate{section_re = CompiledSectionRE, tag_re = CompiledTagRE},
   "fun(Ctx) -> " ++
     compiler(T, State2) ++ " end.".
 
-compiler(T, State) ->
+compiler(T, State) when is_binary(T) ->
   Res = re:run(T, State#mstate.section_re),
   case Res of
     {match, [{M0, M1}, {K0, K1}, {N0, N1}, {C0, C1}]} ->
-      Front = string:substr(T, 1, M0),
-      Back = string:substr(T, M0 + M1 + 1),
-      Kind = string:substr(T, K0 + 1, K1),
-      Name = string:substr(T, N0 + 1, N1),
-      Content = string:substr(T, C0 + 1, C1),
-      "[" ++ compile_tags(Front, State) ++
-        " | [" ++ compile_section(Kind, Name, Content, State) ++
-        " | [" ++ compiler(Back, State) ++ "]]]";
+      Front = binary:part(T, 1, M0 - 1),
+      Back = binary:part(T, M0 + M1, size(T) - M0 - M1),
+      Kind = binary:part(T, K0, K1),
+      Name = binary:part(T, N0, N1),
+      Content = binary:part(T, C0, C1),
+      ["[", compile_tags(Front, State),
+       " | [", compile_section(Kind, Name, Content, State),
+       " | [", compiler(Back, State), "]]]"];
     nomatch ->
       compile_tags(T, State)
   end.
 
-compile_section("#", Name, Content, State) ->
+compile_section(<<"#">>, Name, Content, State) ->
   Mod = State#mstate.mod,
   Result = compiler(Content, State),
-  "fun() -> " ++
-    "case " ++ ?MUSTACHE_STR ++ ":get(" ++ Name ++ ", Ctx, " ++ atom_to_list(Mod) ++ ") of " ++
-      "\"false\" -> []; " ++
-      "\"undefined\" -> []; " ++
-      "[] -> []; " ++
-      "[Dict | _] = List when element(1, Dict) =:= dict -> " ++
-        "[fun(Ctx) -> " ++ Result ++ " end(" ++ ?MUSTACHE_CTX_STR ++ ":merge(SubCtx, Ctx)) || SubCtx <- List]; " ++
-      "SubCtx when element(1, SubCtx) =:= dict -> " ++
-        "[fun(Ctx) -> " ++ Result ++ " end(" ++ ?MUSTACHE_CTX_STR ++ ":merge(SubCtx, Ctx))]; " ++
-      "_ -> " ++
-        Result ++
-    "end " ++
-  "end()";
-compile_section("^", Name, Content, State) ->
+  ["fun() -> ",
+    "case ", ?MUSTACHE_STR, ":get(", unicode:characters_to_list(Name), ", Ctx, ", atom_to_list(Mod), ") of ",
+      "\"false\" -> []; ",
+      "\"undefined\" -> []; ",
+      "[] -> []; ",
+      "[Dict | _] = List when element(1, Dict) =:= dict -> ",
+        "[fun(Ctx) -> ", Result, " end(", ?MUSTACHE_CTX_STR, ":merge(SubCtx, Ctx)) || SubCtx <- List]; ",
+      "SubCtx when element(1, SubCtx) =:= dict -> ",
+        "[fun(Ctx) -> ", Result, " end(", ?MUSTACHE_CTX_STR, ":merge(SubCtx, Ctx))]; ",
+      "_ -> ",
+        Result,
+    "end ",
+  "end()"];
+compile_section(<<"^">>, Name, Content, State) ->
   Mod = State#mstate.mod,
   Result = compiler(Content, State),
-  "fun() -> " ++
-    "case " ++ ?MUSTACHE_STR ++ ":get(" ++ Name ++ ", Ctx, " ++ atom_to_list(Mod) ++ ") of " ++
-      "\"false\" -> " ++ Result ++ "; " ++
-      "\"undefined\" -> " ++ Result ++ "; " ++
-      "[] -> " ++ Result ++ "; " ++
+  ["fun() -> ",
+    "case ", ?MUSTACHE_STR, ":get(", unicode:characters_to_list(Name), ", Ctx, ", atom_to_list(Mod), ") of ",
+      "\"false\" -> ", Result, "; ",
+      "\"undefined\" -> ", Result, "; ",
+      "[] -> ", Result, "; ",
       "_ -> [] "
-    "end " ++
-  "end()".
+    "end ",
+  "end()"].
 
-compile_tags(T, State) ->
+compile_tags(T, State) when is_binary(T) ->
   Res = re:run(T, State#mstate.tag_re),
   case Res of
     {match, [{M0, M1}, K, {C0, C1}]} ->
-      Front = string:substr(T, 1, M0),
-      Back = string:substr(T, M0 + M1 + 1),
-      Content = string:substr(T, C0 + 1, C1),
+      Front = binary:part(T, 1, M0 - 1),
+      Back = binary:part(T, M0 + M1, size(T) - M0 - M1),
+      Content = binary:part(T, C0, C1),
       Kind = tag_kind(T, K),
       Result = compile_tag(Kind, Content, State),
-      "[\"" ++ escape_special(Front) ++
-        "\" | [" ++ Result ++
-        " | " ++ compile_tags(Back, State) ++ "]]";
+      ["[\"", escape_special(Front),
+        "\" | [", Result,
+        " | ", compile_tags(Back, State), "]]"];
     nomatch ->
-      "[\"" ++ escape_special(T) ++ "\"]"
+      ["[\"", escape_special(T), "\"]"]
   end.
 
 tag_kind(_T, {-1, 0}) ->
   none;
 tag_kind(T, {K0, K1}) ->
-  string:substr(T, K0 + 1, K1).
+  binary:part(T, K0, K1).
 
 compile_tag(none, Content, State) ->
   compile_escaped_tag(Content, State);
-compile_tag("&", Content, State) ->
+compile_tag(<<"&">>, Content, State) ->
   compile_unescaped_tag(Content, State);
-compile_tag("{", Content, State) ->
+compile_tag(<<"{">>, Content, State) ->
   compile_unescaped_tag(Content, State);
-compile_tag("!", _Content, _State) ->
+compile_tag(<<"!">>, _Content, _State) ->
   "[]".
 
-compile_escaped_tag(Content, State) ->
+compile_escaped_tag(Content, State) when is_binary(Content)->
   Mod = State#mstate.mod,
-  ?MUSTACHE_STR ++ ":escape(" ++ ?MUSTACHE_STR ++ ":get(" ++ Content ++ ", Ctx, " ++ atom_to_list(Mod) ++ "))".
+  [?MUSTACHE_STR, ":escape(", ?MUSTACHE_STR, ":get(", unicode:characters_to_list(Content), ", Ctx, ", atom_to_list(Mod), "))"].
 
-compile_unescaped_tag(Content, State) ->
+compile_unescaped_tag(Content, State) when is_binary(Content) ->
   Mod = State#mstate.mod,
-  ?MUSTACHE_STR ++ ":get(" ++ Content ++ ", Ctx, " ++ atom_to_list(Mod) ++ ")".
+  [?MUSTACHE_STR, ":get(", unicode:characters_to_list(Content), ", Ctx, ", atom_to_list(Mod), ")"].
 
 template_dir(Mod) ->
   DefaultDirPath = filename:dirname(code:which(Mod)),
@@ -216,7 +216,7 @@ to_s(Val) ->
 escape(HTML) when is_list(HTML) ->
   escape(HTML, []);
 escape(HTML) when is_binary(HTML) ->
-  escape(binary_to_list(HTML), []).
+  escape(unicode:characters_to_list(HTML), []).
 
 escape([], Acc) ->
   lists:reverse(Acc);
@@ -229,8 +229,11 @@ escape([$& | Rest], Acc) ->
 escape([X | Rest], Acc) ->
   escape(Rest, [X | Acc]).
 
-escape_special(String) ->
-    lists:flatten([escape_char(Char) || Char <- String]).
+escape_special(String) when is_list(String) ->
+    lists:flatten([escape_char(Char) || Char <- String]);
+escape_special(String) when is_binary(String) ->
+    escape_special(unicode:characters_to_list(String)).
+
 
 escape_char($\0) -> "\\0";
 escape_char($\n) -> "\\n";
