@@ -97,7 +97,7 @@ compiler(T, State) when is_binary(T) ->
   Res = re:run(T, State#mstate.section_re),
   case Res of
     {match, [{M0, M1}, {K0, K1}, {N0, N1}, {C0, C1}]} ->
-      Front = binary:part(T, 1, M0 - 1),
+      Front = binary:part(T, 0, M0),
       Back = binary:part(T, M0 + M1, size(T) - M0 - M1),
       Kind = binary:part(T, K0, K1),
       Name = binary:part(T, N0, N1),
@@ -141,7 +141,7 @@ compile_tags(T, State) when is_binary(T) ->
   Res = re:run(T, State#mstate.tag_re),
   case Res of
     {match, [{M0, M1}, K, {C0, C1}]} ->
-      Front = binary:part(T, 1, M0 - 1),
+      Front = binary:part(T, 0, M0),
       Back = binary:part(T, M0 + M1, size(T) - M0 - M1),
       Content = binary:part(T, C0, C1),
       Kind = tag_kind(T, K),
